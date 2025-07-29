@@ -183,6 +183,167 @@ namespace StudentManage_API.Controllers
                 });
             }
         }
+
+        /// <summary>
+        /// Fix password for all users - Set all to "123456"
+        /// </summary>
+        [HttpPost("fix-all-passwords")]
+        public async Task<IActionResult> FixAllPasswords()
+        {
+            try
+            {
+                // Get all active users
+                var users = await _context.Users.Where(u => u.IsActive == true).ToListAsync();
+
+                if (!users.Any())
+                {
+                    return NotFound("No active users found");
+                }
+
+                // Generate new hash for "123456"
+                var newHash = BCrypt.Net.BCrypt.HashPassword("123456");
+
+                // Verify the hash works
+                var verification = BCrypt.Net.BCrypt.Verify("123456", newHash);
+
+                if (!verification)
+                {
+                    return StatusCode(500, new { message = "Generated hash verification failed" });
+                }
+
+                // Update all users
+                var updatedUsers = new List<object>();
+                foreach (var user in users)
+                {
+                    user.PasswordHash = newHash;
+                    user.UpdatedDate = DateTime.UtcNow;
+
+                    updatedUsers.Add(new
+                    {
+                        user.Id,
+                        user.Username,
+                        user.FullName,
+                        user.Role
+                    });
+                }
+
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    message = "All user passwords updated successfully to '123456'",
+                    newHash = newHash,
+                    verification = verification,
+                    totalUpdated = users.Count,
+                    updatedUsers = updatedUsers,
+                    updatedAt = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    message = "Error updating passwords",
+                    error = ex.Message,
+                    stackTrace = ex.StackTrace
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get all users info for debugging
+        /// </summary>
+        [HttpGet("all-users")]
+        public async Task<IActionResult> GetAllUsers()
+        {
+            try
+            {
+                var users = await _context.Users
+                    .Select(u => new {
+                        u.Id,
+                        u.Username,
+                        u.Email,
+                        u.FullName,
+                        u.Role,
+                        u.IsActive,
+                        PasswordHashLength = u.PasswordHash.Length,
+                        PasswordHashStart = u.PasswordHash.Substring(0, Math.Min(15, u.PasswordHash.Length)),
+                        CreatedDate = u.CreatedDate,
+                        UpdatedDate = u.UpdatedDate
+                    })
+                    .OrderBy(u => u.Role)
+                    .ThenBy(u => u.Username)
+                    .ToListAsync();
+
+                return Ok(new
+                {
+                    totalUsers = users.Count,
+                    users = users
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    message = "Error getting users",
+                    error = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Test specific user login
+        /// </summary>
+        [HttpPost("test-user-login")]
+        public async Task<IActionResult> TestUserLogin([FromBody] TestLoginRequest request)
+        {
+            try
+            {
+                var user = await _context.Users
+                    .FirstOrDefaultAsync(u => u.Username == request.Username);
+
+                if (user == null)
+                {
+                    return Ok(new
+                    {
+                        success = false,
+                        message = "User not found",
+                        username = request.Username
+                    });
+                }
+
+                var passwordValid = BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash);
+
+                return Ok(new
+                {
+                    success = passwordValid,
+                    message = passwordValid ? "Login would succeed" : "Login would fail - wrong password",
+                    user = new
+                    {
+                        user.Id,
+                        user.Username,
+                        user.FullName,
+                        user.Role,
+                        user.IsActive,
+                        passwordHashLength = user.PasswordHash.Length
+                    },
+                    passwordTest = new
+                    {
+                        providedPassword = request.Password,
+                        hashFromDB = user.PasswordHash.Substring(0, Math.Min(20, user.PasswordHash.Length)) + "...",
+                        verificationResult = passwordValid
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    message = "Error during test login",
+                    error = ex.Message
+                });
+            }
+        }
     }
 
     public class VerifyRequest
@@ -192,6 +353,12 @@ namespace StudentManage_API.Controllers
     }
 
     public class LoginDebugRequest
+    {
+        public string Username { get; set; }
+        public string Password { get; set; }
+    }
+
+    public class TestLoginRequest
     {
         public string Username { get; set; }
         public string Password { get; set; }

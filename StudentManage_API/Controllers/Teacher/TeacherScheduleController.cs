@@ -380,6 +380,7 @@ namespace StudentManage_API.Controllers.Teacher
                         })
                         .OrderByDescending(h => h.ClassCount)
                         .Take(3)
+                        .Cast<object>()
                         .ToList(),
 
                     // Room usage
@@ -393,6 +394,7 @@ namespace StudentManage_API.Controllers.Teacher
                             TotalHours = g.Sum(s => CalculateDuration(s.StartTime, s.EndTime))
                         })
                         .OrderByDescending(r => r.UsageCount)
+                        .Cast<object>()
                         .ToList()
                 };
 
