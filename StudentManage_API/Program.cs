@@ -4,7 +4,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OData.Edm;
 using Microsoft.OData.ModelBuilder;
+using Microsoft.OpenApi.Models;
+using StudentManage_API.Interfaces;
 using StudentManage_API.Models;
+using StudentManage_API.Services;
 using System.Text;
 
 namespace StudentManage_API
@@ -43,6 +46,16 @@ namespace StudentManage_API
                     };
                 });
 
+            // Authorization Policies
+            builder.Services.AddAuthorization(options =>
+            {
+                options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
+                options.AddPolicy("TeacherOnly", policy => policy.RequireRole("Teacher"));
+                options.AddPolicy("StudentOnly", policy => policy.RequireRole("Student"));
+                options.AddPolicy("TeacherOrAdmin", policy => policy.RequireRole("Teacher", "Admin"));
+                options.AddPolicy("AllRoles", policy => policy.RequireRole("Admin", "Teacher", "Student"));
+            });
+
             // OData Configuration
             builder.Services.AddControllers().AddOData(options =>
                 options.Select().Filter().OrderBy().Expand().Count().SetMaxTop(1000)
@@ -60,6 +73,9 @@ namespace StudentManage_API
                     });
             });
 
+            // Register Services
+            builder.Services.AddScoped<IAuthService, AuthService>();
+
             // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen(c =>
@@ -67,23 +83,23 @@ namespace StudentManage_API
                 c.SwaggerDoc("v1", new() { Title = "Student Management API", Version = "v1" });
 
                 // JWT Bearer configuration for Swagger
-                c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+                c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
                 {
                     Description = "JWT Authorization header using the Bearer scheme. Enter 'Bearer' [space] and then your token",
                     Name = "Authorization",
-                    In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-                    Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+                    In = ParameterLocation.Header,
+                    Type = SecuritySchemeType.ApiKey,
                     Scheme = "Bearer"
                 });
 
-                c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+                c.AddSecurityRequirement(new OpenApiSecurityRequirement
                 {
                     {
-                        new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+                        new OpenApiSecurityScheme
                         {
-                            Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                            Reference = new OpenApiReference
                             {
-                                Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                                Type = ReferenceType.SecurityScheme,
                                 Id = "Bearer"
                             }
                         },
@@ -91,10 +107,6 @@ namespace StudentManage_API
                     }
                 });
             });
-
-            // Register Services (we'll uncomment these when we create the services)
-            // builder.Services.AddScoped<IAuthService, AuthService>();
-            // builder.Services.AddScoped<IUserService, UserService>();
 
             var app = builder.Build();
 

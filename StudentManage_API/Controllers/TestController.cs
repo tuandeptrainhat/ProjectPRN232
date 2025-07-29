@@ -1,0 +1,199 @@
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using StudentManage_API.Models;
+
+namespace StudentManage_API.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class TestController : ControllerBase
+    {
+        private readonly StudentManagementDbContext _context;
+
+        public TestController(StudentManagementDbContext context)
+        {
+            _context = context;
+        }
+
+        /// <summary>
+        /// Generate BCrypt hash for password
+        /// </summary>
+        [HttpGet("generate-hash/{password}")]
+        public IActionResult GenerateHash(string password)
+        {
+            var hash = BCrypt.Net.BCrypt.HashPassword(password);
+            return Ok(new
+            {
+                password = password,
+                hash = hash,
+                verification = BCrypt.Net.BCrypt.Verify(password, hash)
+            });
+        }
+
+        /// <summary>
+        /// Test password verification
+        /// </summary>
+        [HttpPost("verify-password")]
+        public IActionResult VerifyPassword([FromBody] VerifyRequest request)
+        {
+            var isValid = BCrypt.Net.BCrypt.Verify(request.Password, request.Hash);
+            return Ok(new
+            {
+                password = request.Password,
+                hash = request.Hash,
+                isValid = isValid
+            });
+        }
+
+        /// <summary>
+        /// Get admin user info for debugging
+        /// </summary>
+        [HttpGet("admin-info")]
+        public async Task<IActionResult> GetAdminInfo()
+        {
+            var admin = await _context.Users
+                .Where(u => u.Username == "admin")
+                .Select(u => new {
+                    u.Id,
+                    u.Username,
+                    u.Email,
+                    u.FullName,
+                    u.Role,
+                    u.IsActive,
+                    PasswordHashLength = u.PasswordHash.Length,
+                    PasswordHashStart = u.PasswordHash.Substring(0, Math.Min(20, u.PasswordHash.Length)),
+                    CreatedDate = u.CreatedDate,
+                    UpdatedDate = u.UpdatedDate
+                })
+                .FirstOrDefaultAsync();
+
+            if (admin == null)
+            {
+                return NotFound("Admin user not found");
+            }
+
+            return Ok(admin);
+        }
+
+        /// <summary>
+        /// Test login logic step by step
+        /// </summary>
+        [HttpPost("debug-login")]
+        public async Task<IActionResult> DebugLogin([FromBody] LoginDebugRequest request)
+        {
+            try
+            {
+                // Step 1: Find user
+                var user = await _context.Users
+                    .FirstOrDefaultAsync(u => u.Username == request.Username);
+
+                if (user == null)
+                {
+                    return Ok(new
+                    {
+                        step = "user_lookup",
+                        success = false,
+                        message = "User not found",
+                        username = request.Username
+                    });
+                }
+
+                // Step 2: Check if active
+                if (user.IsActive != true)
+                {
+                    return Ok(new
+                    {
+                        step = "user_active_check",
+                        success = false,
+                        message = "User is not active",
+                        isActive = user.IsActive
+                    });
+                }
+
+                // Step 3: Verify password
+                var passwordValid = BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash);
+
+                return Ok(new
+                {
+                    step = "password_verification",
+                    success = passwordValid,
+                    message = passwordValid ? "Password is valid" : "Password is invalid",
+                    user = new
+                    {
+                        user.Id,
+                        user.Username,
+                        user.FullName,
+                        user.Role,
+                        passwordHashLength = user.PasswordHash.Length,
+                        passwordHashStart = user.PasswordHash.Substring(0, Math.Min(10, user.PasswordHash.Length))
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                return Ok(new
+                {
+                    step = "exception",
+                    success = false,
+                    message = ex.Message,
+                    stackTrace = ex.StackTrace
+                });
+            }
+        }
+
+        /// <summary>
+        /// Update admin password with proper BCrypt hash
+        /// </summary>
+        [HttpPost("fix-admin-password")]
+        public async Task<IActionResult> FixAdminPassword()
+        {
+            try
+            {
+                var admin = await _context.Users.FirstOrDefaultAsync(u => u.Username == "admin");
+                if (admin == null)
+                {
+                    return NotFound("Admin user not found");
+                }
+
+                // Generate new hash for "123456"
+                var newHash = BCrypt.Net.BCrypt.HashPassword("123456");
+
+                // Verify the new hash works
+                var verification = BCrypt.Net.BCrypt.Verify("123456", newHash);
+
+                // Update in database
+                admin.PasswordHash = newHash;
+                admin.UpdatedDate = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    message = "Admin password updated successfully",
+                    newHash = newHash,
+                    verification = verification,
+                    updatedDate = admin.UpdatedDate
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    message = "Error updating password",
+                    error = ex.Message
+                });
+            }
+        }
+    }
+
+    public class VerifyRequest
+    {
+        public string Password { get; set; }
+        public string Hash { get; set; }
+    }
+
+    public class LoginDebugRequest
+    {
+        public string Username { get; set; }
+        public string Password { get; set; }
+    }
+}
